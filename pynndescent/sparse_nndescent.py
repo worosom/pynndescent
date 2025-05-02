@@ -189,8 +189,7 @@ def nn_descent_internal_low_memory_parallel(
     n_threads = numba.get_num_threads()
 
     for n in range(n_iters):
-        if verbose:
-            print("\t", n + 1, " / ", n_iters)
+        # Removed print statement for Python 3.13 compatibility
 
         (new_candidate_neighbors, old_candidate_neighbors) = new_build_candidates(
             current_graph, max_candidates, rng_state, n_threads
@@ -218,8 +217,7 @@ def nn_descent_internal_low_memory_parallel(
             c += apply_graph_updates_low_memory(current_graph, updates, n_threads)
 
         if c <= delta * n_neighbors * n_vertices:
-            if verbose:
-                print("\tStopping threshold met -- exiting after", n + 1, "iterations")
+            # Removed print statement for Python 3.13 compatibility
             return
 
 
@@ -248,8 +246,7 @@ def nn_descent_internal_high_memory_parallel(
     ]
 
     for n in range(n_iters):
-        if verbose:
-            print("\t", n + 1, " / ", n_iters)
+        # Removed print statement for Python 3.13 compatibility
 
         (new_candidate_neighbors, old_candidate_neighbors) = new_build_candidates(
             current_graph, max_candidates, rng_state, n_threads
@@ -277,8 +274,7 @@ def nn_descent_internal_high_memory_parallel(
             c += apply_graph_updates_high_memory(current_graph, updates, in_graph)
 
         if c <= delta * n_neighbors * n_vertices:
-            if verbose:
-                print("\tStopping threshold met -- exiting after", n + 1, "iterations")
+            # Removed print statement for Python 3.13 compatibility
             return
 
 
