@@ -411,7 +411,8 @@ def nn_descent(
             current_graph = init_graph
         else:
             # We can't raise a ValueError in numba, so we'll return an empty result
-            return (np.zeros((1, 1), dtype=np.int64), np.zeros((1, 1), dtype=np.float64))
+            # Make sure to use the same types as deheap_sort returns
+            return (np.zeros((1, 1), dtype=np.int32), np.zeros((1, 1), dtype=np.float32))
 
         if low_memory:
             nn_descent_internal_low_memory_parallel(
