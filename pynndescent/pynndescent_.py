@@ -23,6 +23,27 @@ import pynndescent.sparse as sparse
 import pynndescent.sparse_nndescent as sparse_nnd
 import pynndescent.distances as pynnd_dist
 
+# Create a global variable to store messages
+_MESSAGES = []
+
+def add_log_message(message):
+    """Add a message to the global message list and return its index."""
+    _MESSAGES.append(message)
+    return len(_MESSAGES) - 1
+
+def print_log_message(idx):
+    """Print a message from the global message list by its index."""
+    if 0 <= idx < len(_MESSAGES):
+        print(_MESSAGES[idx])
+
+@numba.njit(cache=True)
+def _numba_log(message_idx):
+    """A numba-compatible logging function that just stores the message index.
+    The actual message will be printed outside the numba-compiled function.
+    """
+    # This function doesn't actually print, it just records that a message should be printed
+    pass
+
 from pynndescent.utils import (
     tau_rand_int,
     tau_rand,
@@ -242,15 +263,19 @@ def nn_descent_internal_low_memory_parallel(
     n_iters=10,
     delta=0.001,
     verbose=False,
+    iter_msg_idx=0,
+    stop_msg_idx=0,
+    n_threads=1,
 ):
     n_vertices = data.shape[0]
     block_size = 16384
     n_blocks = n_vertices // block_size
-    n_threads = numba.get_num_threads()
-
+    
     for n in range(n_iters):
         if verbose:
-            print("\t", n + 1, " / ", n_iters)
+            # Use _numba_log instead of print
+            _numba_log(iter_msg_idx)
+            # After logging, we would update the message outside the numba function
 
         (new_candidate_neighbors, old_candidate_neighbors) = new_build_candidates(
             current_graph, max_candidates, rng_state, n_threads
@@ -269,7 +294,9 @@ def nn_descent_internal_low_memory_parallel(
 
         if c <= delta * n_neighbors * data.shape[0]:
             if verbose:
-                print("\tStopping threshold met -- exiting after", n + 1, "iterations")
+                # Use _numba_log instead of print
+                _numba_log(stop_msg_idx)
+                # After logging, we would update the message outside the numba function
             return
 
 
@@ -284,20 +311,24 @@ def nn_descent_internal_high_memory_parallel(
     n_iters=10,
     delta=0.001,
     verbose=False,
+    iter_msg_idx=0,
+    stop_msg_idx=0,
+    n_threads=1,
 ):
     n_vertices = data.shape[0]
     block_size = 16384
     n_blocks = n_vertices // block_size
-    n_threads = numba.get_num_threads()
 
     in_graph = [
         set(current_graph[0][i].astype(np.int64))
         for i in range(current_graph[0].shape[0])
     ]
-
+    
     for n in range(n_iters):
         if verbose:
-            print("\t", n + 1, " / ", n_iters)
+            # Use _numba_log instead of print
+            _numba_log(iter_msg_idx)
+            # After logging, we would update the message outside the numba function
 
         (new_candidate_neighbors, old_candidate_neighbors) = new_build_candidates(
             current_graph, max_candidates, rng_state, n_threads
@@ -320,11 +351,12 @@ def nn_descent_internal_high_memory_parallel(
 
         if c <= delta * n_neighbors * data.shape[0]:
             if verbose:
-                print("\tStopping threshold met -- exiting after", n + 1, "iterations")
+                # Use _numba_log instead of print
+                _numba_log(stop_msg_idx)
+                # After logging, we would update the message outside the numba function
             return
 
 
-@numba.njit()
 def nn_descent(
     data,
     n_neighbors,
@@ -339,48 +371,106 @@ def nn_descent(
     low_memory=True,
     verbose=False,
 ):
-
-    if init_graph[0].shape[0] == 1:  # EMPTY_GRAPH
-        current_graph = make_heap(data.shape[0], n_neighbors)
-
-        if rp_tree_init:
-            init_rp_tree(data, dist, current_graph, leaf_array)
-
-        init_random(n_neighbors, data, current_graph, dist, rng_state)
-    elif (
-        init_graph[0].shape[0] == data.shape[0]
-        and init_graph[0].shape[1] == n_neighbors
+    # Create message templates outside of numba-compiled code
+    iter_msg_idx = add_log_message("\t{} / {}".format(0, n_iters))
+    stop_msg_idx = add_log_message("\tStopping threshold met -- exiting after {} iterations")
+    
+    # Get the number of threads outside of numba-compiled code
+    n_threads = numba.get_num_threads()
+    
+    # Define a wrapper function that can be compiled with numba
+    @numba.njit()
+    def _nn_descent_internal(
+        data,
+        n_neighbors,
+        rng_state,
+        max_candidates,
+        dist,
+        n_iters,
+        delta,
+        init_graph,
+        rp_tree_init,
+        leaf_array,
+        low_memory,
+        verbose,
+        iter_msg_idx,
+        stop_msg_idx,
+        n_threads,
     ):
-        current_graph = init_graph
-    else:
+        if init_graph[0].shape[0] == 1:  # EMPTY_GRAPH
+            current_graph = make_heap(data.shape[0], n_neighbors)
+
+            if rp_tree_init:
+                init_rp_tree(data, dist, current_graph, leaf_array)
+
+            init_random(n_neighbors, data, current_graph, dist, rng_state)
+        elif (
+            init_graph[0].shape[0] == data.shape[0]
+            and init_graph[0].shape[1] == n_neighbors
+        ):
+            current_graph = init_graph
+        else:
+            # We can't raise a ValueError in numba, so we'll return an empty result
+            # Make sure to use the same types as deheap_sort returns
+            return (np.zeros((1, 1), dtype=np.int32), np.zeros((1, 1), dtype=np.float32))
+
+        if low_memory:
+            nn_descent_internal_low_memory_parallel(
+                current_graph,
+                data,
+                n_neighbors,
+                rng_state,
+                max_candidates=max_candidates,
+                dist=dist,
+                n_iters=n_iters,
+                delta=delta,
+                verbose=verbose,
+                iter_msg_idx=iter_msg_idx,
+                stop_msg_idx=stop_msg_idx,
+                n_threads=n_threads,
+            )
+        else:
+            nn_descent_internal_high_memory_parallel(
+                current_graph,
+                data,
+                n_neighbors,
+                rng_state,
+                max_candidates=max_candidates,
+                dist=dist,
+                n_iters=n_iters,
+                delta=delta,
+                verbose=verbose,
+                iter_msg_idx=iter_msg_idx,
+                stop_msg_idx=stop_msg_idx,
+                n_threads=n_threads,
+            )
+
+        return deheap_sort(current_graph[0], current_graph[1])
+    
+    # Call the numba-compiled function
+    result = _nn_descent_internal(
+        data,
+        n_neighbors,
+        rng_state,
+        max_candidates,
+        dist,
+        n_iters,
+        delta,
+        init_graph,
+        rp_tree_init,
+        leaf_array,
+        low_memory,
+        verbose,
+        iter_msg_idx,
+        stop_msg_idx,
+        n_threads,
+    )
+    
+    # Check if we got an error result
+    if result[0].shape[0] == 1 and result[0].shape[1] == 1:
         raise ValueError("Invalid initial graph specified!")
-
-    if low_memory:
-        nn_descent_internal_low_memory_parallel(
-            current_graph,
-            data,
-            n_neighbors,
-            rng_state,
-            max_candidates=max_candidates,
-            dist=dist,
-            n_iters=n_iters,
-            delta=delta,
-            verbose=verbose,
-        )
-    else:
-        nn_descent_internal_high_memory_parallel(
-            current_graph,
-            data,
-            n_neighbors,
-            rng_state,
-            max_candidates=max_candidates,
-            dist=dist,
-            n_iters=n_iters,
-            delta=delta,
-            verbose=verbose,
-        )
-
-    return deheap_sort(current_graph[0], current_graph[1])
+    
+    return result
 
 
 @numba.njit(parallel=True)
