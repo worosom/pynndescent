@@ -265,11 +265,11 @@ def nn_descent_internal_low_memory_parallel(
     verbose=False,
     iter_msg_idx=0,
     stop_msg_idx=0,
+    n_threads=1,
 ):
     n_vertices = data.shape[0]
     block_size = 16384
     n_blocks = n_vertices // block_size
-    n_threads = numba.get_num_threads()
     
     for n in range(n_iters):
         if verbose:
@@ -313,11 +313,11 @@ def nn_descent_internal_high_memory_parallel(
     verbose=False,
     iter_msg_idx=0,
     stop_msg_idx=0,
+    n_threads=1,
 ):
     n_vertices = data.shape[0]
     block_size = 16384
     n_blocks = n_vertices // block_size
-    n_threads = numba.get_num_threads()
 
     in_graph = [
         set(current_graph[0][i].astype(np.int64))
@@ -375,6 +375,9 @@ def nn_descent(
     iter_msg_idx = add_log_message("\t{} / {}".format(0, n_iters))
     stop_msg_idx = add_log_message("\tStopping threshold met -- exiting after {} iterations")
     
+    # Get the number of threads outside of numba-compiled code
+    n_threads = numba.get_num_threads()
+    
     # Define a wrapper function that can be compiled with numba
     @numba.njit()
     def _nn_descent_internal(
@@ -392,6 +395,7 @@ def nn_descent(
         verbose,
         iter_msg_idx,
         stop_msg_idx,
+        n_threads,
     ):
         if init_graph[0].shape[0] == 1:  # EMPTY_GRAPH
             current_graph = make_heap(data.shape[0], n_neighbors)
@@ -422,6 +426,7 @@ def nn_descent(
                 verbose=verbose,
                 iter_msg_idx=iter_msg_idx,
                 stop_msg_idx=stop_msg_idx,
+                n_threads=n_threads,
             )
         else:
             nn_descent_internal_high_memory_parallel(
@@ -436,6 +441,7 @@ def nn_descent(
                 verbose=verbose,
                 iter_msg_idx=iter_msg_idx,
                 stop_msg_idx=stop_msg_idx,
+                n_threads=n_threads,
             )
 
         return deheap_sort(current_graph[0], current_graph[1])
@@ -456,6 +462,7 @@ def nn_descent(
         verbose,
         iter_msg_idx,
         stop_msg_idx,
+        n_threads,
     )
     
     # Check if we got an error result
